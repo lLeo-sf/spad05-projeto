@@ -1,77 +1,148 @@
 import { MapContainer, TileLayer, GeoJSON } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import "../index.css";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Line } from "react-chartjs-2";
+import {
+  Chart as ChartJS,
+  LineElement,
+  PointElement,
+  CategoryScale,
+  LinearScale,
+  Tooltip,
+  Legend
+} from "chart.js";
+
+ChartJS.register(LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend);
+
 
 export default function Dashboard() {
-  const metrics = [
+  // === METRICAS ORIGINAIS (mantidas) ===
+  const [metrics, setMetrics] = useState([
     { name: "Temperatura", value: "23°C", icon: "🌡️" },
     { name: "Umidade", value: "72%", icon: "💧" },
-    { name: "NDVI", value: "0.73", icon: "🌿" },
-    { name: "NDVE", value: "0.68", icon: "🌱" },
-    { name: "Densidade do plantio", value: "Baixa", icon: "🌾" },
-  ];
+  ]);
 
+  // === Historico da direita ===
+  const [climaHistorico, setClimaHistorico] = useState([]);
+
+  // === state para as layers ===
   const [layers, setLayers] = useState({
-    fazendas: true,
-    temperatura: false,
-    ndvi: false,
-    umidade: false,
+    cafes: true,
+    clima: false,
   });
+
+  const [cafesGeoJson, setCafesGeoJson] = useState(null);
+  const [climaGeoJson, setClimaGeoJson] = useState(null);
+
+  useEffect(() => {
+    fetch("/clima_carmo_de_minas (1).csv")
+      .then((res) => res.text())
+      .then((text) => {
+        const linhas = text.split(/\r?\n/).slice(1);
+
+        const historico = linhas
+          .map((l) => {
+            if (!l.trim()) return null;
+
+            // separa por vírgula e remove aspas
+            const cols = l
+              .split(",")
+              .map(c => c.trim().replace(/"/g, "").replace("\ufeff", ""));
+
+            const data = cols[2];
+            const temperatura = parseFloat(cols[3]);
+            const umidade = parseFloat(cols[4]);
+
+            if (isNaN(temperatura) || isNaN(umidade)) {
+              console.warn("Linha ignorada:", cols);
+              return null;
+            }
+
+            return { data, temperatura, umidade };
+          })
+          .filter(Boolean);
+
+        setClimaHistorico(historico);
+
+        const atual = historico[historico.length - 1];
+
+        // Atualiza temperatura e umidade dos cards
+        setMetrics((prev) =>
+          prev.map((m) => {
+            if (m.name === "Temperatura")
+              return { ...m, value: atual?.temperatura.toFixed(1) + "°C" };
+            if (m.name === "Umidade")
+              return { ...m, value: atual?.umidade.toFixed(1) + "%" };
+            return m;
+          })
+        );
+      });
+  }, []);
+
+
+  // === WFS: Fazendas ===
+  useEffect(() => {
+    fetch(
+      "http://localhost:8080/geoserver/ne/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=ne:Cafes_CarmoDeMinas&outputFormat=application/json"
+    )
+      .then((res) => res.json())
+      .then((data) => setCafesGeoJson(data))
+      .catch((err) => console.error("Erro ao carregar Cafes_CarmoDeMinas:", err));
+  }, []);
+
+  // === WFS: Clima ===
+  useEffect(() => {
+    fetch(
+      "http://localhost:8080/geoserver/ne/ows?service=WFS&version=1.0.0&request=GetFeature&typeName=ne:clima_carmo_de_minas_geom&outputFormat=application/json"
+    )
+      .then((res) => res.json())
+      .then((data) => setClimaGeoJson(data))
+      .catch((err) => console.error("Erro ao carregar clima:", err));
+  }, []);
 
   const toggleLayer = (layer) => {
     setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
   };
 
-  // 🔹 GeoJSON simulado (fazendas)
-  const fazendasGeoJson = {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        properties: { name: "Fazenda São José" },
-        geometry: {
-          type: "Polygon",
-          coordinates: [
-            [
-              [-45.155, -22.11],
-              [-45.145, -22.11],
-              [-45.145, -22.12],
-              [-45.155, -22.12],
-              [-45.155, -22.11],
-            ],
-          ],
-        },
-      },
-    ],
+  // === estilo das fazendas ===
+  const defaultStyle = {
+    color: "#22c55e",
+    weight: 2,
+    fillColor: "#22c55e",
+    fillOpacity: 0.35,
   };
 
-  // 🔹 GeoJSON simulado (temperatura)
-  const temperaturaGeoJson = {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        properties: { temp: 28 },
-        geometry: {
-          type: "Polygon",
-          coordinates: [
-            [
-              [-45.165, -22.105],
-              [-45.135, -22.105],
-              [-45.135, -22.125],
-              [-45.165, -22.125],
-              [-45.165, -22.105],
-            ],
-          ],
-        },
+  // === estilo do clima geom ===
+  const climaStyle = {
+    color: "#2563eb",
+    weight: 2,
+    fillColor: "#3b82f6",
+    fillOpacity: 0.4,
+  };
+
+  const highlightStyle = {
+    color: "#166534",
+    weight: 3,
+    fillColor: "#15803d",
+    fillOpacity: 0.55,
+  };
+
+  const onEachFeature = (feature, layer) => {
+    layer.on({
+      click: () => {
+        layer.setStyle(highlightStyle);
+        layer.bindPopup(`<b>Fazenda</b><br>ID: ${feature.id}`).openPopup();
       },
-    ],
+      mouseover: () => layer.setStyle(highlightStyle),
+      mouseout: () => layer.setStyle(defaultStyle),
+    });
   };
 
   return (
     <div className="layout">
-      {/* === Barra lateral esquerda (só leitura) === */}
+
+      {/* === Barra lateral esquerda (INTACTA) === */}
       <div className="floating-left readonly">
         {metrics.map((m) => (
           <div key={m.name} className="metric-float readonly-item">
@@ -82,82 +153,87 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* === Mapa central === */}
-      <MapContainer
-        center={[-22.1176, -45.1314]}
-        zoom={13}
-        className="map"
-      >
-        {/* Base map */}
+      {/* === Mapa === */}
+      <MapContainer center={[-22.1176, -45.1314]} zoom={12} className="map">
         <TileLayer
-          attribution='&copy; OpenStreetMap contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution="&copy; OpenStreetMap"
         />
 
-        {/* Camada: fazendas */}
-        {layers.fazendas && (
-          <GeoJSON
-            data={fazendasGeoJson}
-            style={{
-              color: "#22c55e",
-              weight: 2,
-              fillColor: "#22c55e",
-              fillOpacity: 0.3,
-            }}
-          />
+        {layers.cafes && cafesGeoJson && (
+          <GeoJSON data={cafesGeoJson} style={defaultStyle} onEachFeature={onEachFeature} />
         )}
 
-        {/* Camada: temperatura */}
-        {layers.temperatura && (
-          <GeoJSON
-            data={temperaturaGeoJson}
-            style={{
-              color: "#ef4444",
-              weight: 1,
-              fillColor: "#ef4444",
-              fillOpacity: 0.5,
-            }}
-          />
+        {layers.clima && climaGeoJson && (
+          <GeoJSON data={climaGeoJson} style={climaStyle} />
         )}
       </MapContainer>
 
       {/* === Painel direito === */}
       <div className="floating-right">
         <h3>DADOS HISTÓRICOS</h3>
-        <div className="history-list">
-          {metrics.map((m) => (
-            <div key={m.name} className="history-card">
-              {m.icon} {m.name}
-            </div>
-          ))}
+
+        <div style={{
+          width: "100%",
+          height: "320px",
+          padding: "8px",
+          boxSizing: "border-box"
+        }}>
+          {climaHistorico.length > 0 && (
+            <Line
+              data={{
+                labels: climaHistorico.map(h => h.data),
+                datasets: [
+                  {
+                    label: "Temperatura (°C)",
+                    data: climaHistorico.map(h => h.temperatura),
+                    borderColor: "#ef4444",
+                    backgroundColor: "rgba(239, 68, 68, 0.3)",
+                    tension: 0.3,
+                    pointRadius: 2,
+                  },
+                  {
+                    label: "Umidade (%)",
+                    data: climaHistorico.map(h => h.umidade),
+                    borderColor: "#3b82f6",
+                    backgroundColor: "rgba(59, 130, 246, 0.3)",
+                    tension: 0.3,
+                    pointRadius: 2,
+                  },
+                ],
+              }}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { display: true },
+                },
+                scales: {
+                  x: {
+                    ticks: { maxRotation: 45, minRotation: 45 },
+                  },
+                },
+              }}
+            />
+          )}
         </div>
       </div>
 
-      {/* === Barra inferior de controle das tiles === */}
+
+      {/* === Toolbar === */}
       <div className="toolbar">
         <button
-          className={`tool-btn ${layers.fazendas ? "active" : ""}`}
-          onClick={() => toggleLayer("fazendas")}
+          className={`tool-btn ${layers.cafes ? "active" : ""}`}
+          onClick={() => toggleLayer("cafes")}
         >
           🟩 Fazendas
         </button>
+
         <button
-          className={`tool-btn ${layers.temperatura ? "active" : ""}`}
-          onClick={() => toggleLayer("temperatura")}
+          className={`tool-btn ${layers.clima ? "active" : ""}`}
+          onClick={() => toggleLayer("clima")}
         >
-          🌡️ Temperatura
-        </button>
-        <button
-          className={`tool-btn ${layers.ndvi ? "active" : ""}`}
-          onClick={() => toggleLayer("ndvi")}
-        >
-          🌿 NDVI
-        </button>
-        <button
-          className={`tool-btn ${layers.umidade ? "active" : ""}`}
-          onClick={() => toggleLayer("umidade")}
-        >
-          💧 Umidade
+          🌦️ Clima (geom)
         </button>
       </div>
     </div>
