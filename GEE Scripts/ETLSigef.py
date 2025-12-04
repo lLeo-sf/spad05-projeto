@@ -20,19 +20,6 @@ conn = psycopg2.connect(
 )
 cur = conn.cursor()
 
-# Criar tabela
-# cur.execute("""
-# CREATE TABLE IF NOT EXISTS Clima_fazendas_sigef (
-#     id SERIAL PRIMARY KEY,
-#     area_id INTEGER NOT NULL,
-#     data DATE NOT NULL,
-#     temperatura DOUBLE PRECISION,
-#     umidade DOUBLE PRECISION,
-#     FOREIGN KEY (area_id) REFERENCES SHPSigefCarmo(id)
-# );
-# """)
-# conn.commit()
-
 with open('Json/clima_SigefFinal_Fazendas.geojson', encoding='utf-8') as f:
     data = json.load(f)
 
